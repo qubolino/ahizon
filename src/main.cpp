@@ -30,9 +30,12 @@
 #include <SPI.h>
 #include <Wire.h>
 
+#include <MahonyAHRS.h>
+
 // TFT stuff
 #include <TFT_eSPI.h> // Graphics and font library for ST7735 driver chip
-TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom library
+// TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom library
+TFT_eSPI tft = TFT_eSPI(240, 320); // Invoke custom library
 
 #define TFT_GREY 0x5AEB // New colour
 #define TFT_BL          4  // Display backlight control pin
@@ -41,15 +44,15 @@ TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom library
 
 #define REDRAW_DELAY 16 // minimum delay in milliseconds between display updates
 
-#define HOR 240    // Horizon vector line length
+#define HOR 400    // Horizon vector line length
 
 #define BROWN      0x5140 //0x5960
 #define SKY_BLUE   0x02B5 //0x0318 //0x039B //0x34BF
 #define DARK_RED   0xYC00
 #define DARK_GREY  0x39C7
 
-#define XC 68 // x coord of centre of horizon
-#define YC 120 // y coord of centre of horizon
+#define XC 120 // x coord of centre of horizon
+#define YC 160 // y coord of centre of horizon
 
 #define DEG2RAD 0.0174532925
 
@@ -736,99 +739,6 @@ void MPU9250SelfTest(float * destination) // Should return percent deviation fro
    
 }
 
- // Similar to Madgwick scheme but uses proportional and integral filtering on the error between estimated reference vectors and
- // measured ones. 
-void MahonyQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz)
-        {
-            float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
-            float norm;
-            float hx, hy, bx, bz;
-            float vx, vy, vz, wx, wy, wz;
-            float ex, ey, ez;
-            float pa, pb, pc;
-
-            // Auxiliary variables to avoid repeated arithmetic
-            float q1q1 = q1 * q1;
-            float q1q2 = q1 * q2;
-            float q1q3 = q1 * q3;
-            float q1q4 = q1 * q4;
-            float q2q2 = q2 * q2;
-            float q2q3 = q2 * q3;
-            float q2q4 = q2 * q4;
-            float q3q3 = q3 * q3;
-            float q3q4 = q3 * q4;
-            float q4q4 = q4 * q4;   
-
-            // Normalise accelerometer measurement
-            norm = sqrtf(ax * ax + ay * ay + az * az);
-            if (norm == 0.0f) return; // handle NaN
-            norm = 1.0f / norm;        // use reciprocal for division
-            ax *= norm;
-            ay *= norm;
-            az *= norm;
-
-            // Normalise magnetometer measurement
-            norm = sqrtf(mx * mx + my * my + mz * mz);
-            if (norm == 0.0f) return; // handle NaN
-            norm = 1.0f / norm;        // use reciprocal for division
-            mx *= norm;
-            my *= norm;
-            mz *= norm;
-
-            // Reference direction of Earth's magnetic field
-            hx = 2.0f * mx * (0.5f - q3q3 - q4q4) + 2.0f * my * (q2q3 - q1q4) + 2.0f * mz * (q2q4 + q1q3);
-            hy = 2.0f * mx * (q2q3 + q1q4) + 2.0f * my * (0.5f - q2q2 - q4q4) + 2.0f * mz * (q3q4 - q1q2);
-            bx = sqrtf((hx * hx) + (hy * hy));
-            bz = 2.0f * mx * (q2q4 - q1q3) + 2.0f * my * (q3q4 + q1q2) + 2.0f * mz * (0.5f - q2q2 - q3q3);
-
-            // Estimated direction of gravity and magnetic field
-            vx = 2.0f * (q2q4 - q1q3);
-            vy = 2.0f * (q1q2 + q3q4);
-            vz = q1q1 - q2q2 - q3q3 + q4q4;
-            wx = 2.0f * bx * (0.5f - q3q3 - q4q4) + 2.0f * bz * (q2q4 - q1q3);
-            wy = 2.0f * bx * (q2q3 - q1q4) + 2.0f * bz * (q1q2 + q3q4);
-            wz = 2.0f * bx * (q1q3 + q2q4) + 2.0f * bz * (0.5f - q2q2 - q3q3);  
-
-            // Error is cross product between estimated direction and measured direction of gravity
-            ex = (ay * vz - az * vy) + (my * wz - mz * wy);
-            ey = (az * vx - ax * vz) + (mz * wx - mx * wz);
-            ez = (ax * vy - ay * vx) + (mx * wy - my * wx);
-            if (Ki > 0.0f)
-            {
-                eInt[0] += ex;      // accumulate integral error
-                eInt[1] += ey;
-                eInt[2] += ez;
-            }
-            else
-            {
-                eInt[0] = 0.0f;     // prevent integral wind up
-                eInt[1] = 0.0f;
-                eInt[2] = 0.0f;
-            }
-
-            // Apply feedback terms
-            gx = gx + Kp * ex + Ki * eInt[0];
-            gy = gy + Kp * ey + Ki * eInt[1];
-            gz = gz + Kp * ez + Ki * eInt[2];
-
-            // Integrate rate of change of quaternion
-            pa = q2;
-            pb = q3;
-            pc = q4;
-            q1 = q1 + (-q2 * gx - q3 * gy - q4 * gz) * (0.5f * deltat);
-            q2 = pa + (q1 * gx + pb * gz - pc * gy) * (0.5f * deltat);
-            q3 = pb + (q1 * gy - pa * gz + pc * gx) * (0.5f * deltat);
-            q4 = pc + (q1 * gz + pa * gy - pb * gx) * (0.5f * deltat);
-
-            // Normalise quaternion
-            norm = sqrtf(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4);
-            norm = 1.0f / norm;
-            q[0] = q1 * norm;
-            q[1] = q2 * norm;
-            q[2] = q3 * norm;
-            q[3] = q4 * norm;
- 
-        }
 
 // #########################################################################
 // Draw the horizon with a new roll (angle in range -180 to +180)
@@ -919,28 +829,31 @@ void drawInfo(void)
   // Pitch scale values
   tft.setTextColor(TFT_WHITE);
   tft.setCursor(XC - 12 - 13, YC - 20 - 3);
-  tft.print("10");
+  tft.print("20");
   tft.setCursor(XC + 12 + 1, YC - 20 - 3);
-  tft.print("10");
+  tft.print("20");
   tft.setCursor(XC - 12 - 13, YC + 20 - 3);
-  tft.print("10");
+  tft.print("20");
   tft.setCursor(XC + 12 + 1, YC + 20 - 3);
-  tft.print("10");
+  tft.print("20");
 
   tft.setCursor(XC - 12 - 13, YC - 40 - 3);
-  tft.print("20");
+  tft.print("40");
   tft.setCursor(XC + 12 + 1, YC - 40 - 3);
-  tft.print("20");
+  tft.print("40");
   tft.setCursor(XC - 12 - 13, YC + 40 - 3);
-  tft.print("20");
+  tft.print("40");
   tft.setCursor(XC + 12 + 1, YC + 40 - 3);
-  tft.print("20");
+  tft.print("40");
 
   // Display justified roll value near bottom of screen
   tft.setTextColor(TFT_YELLOW, BROWN); // Text with background
   tft.setTextDatum(MC_DATUM);            // Centre middle justified
   tft.setTextPadding(24);                // Padding width to wipe previous number
-  tft.drawNumber(last_roll, XC, YC * 2 - 20, 1);
+  tft.drawString("PI:", XC - 40, YC * 2 - 20, 1);
+  tft.drawNumber(last_pitch, XC - 20, YC * 2 - 20, 1);
+  tft.drawString("RO:", XC +20, YC * 2 - 20, 1);
+  tft.drawNumber(last_roll, XC + 40, YC * 2 - 20, 1);
 
   // Draw fixed text
   tft.setTextColor(TFT_YELLOW);
@@ -989,6 +902,7 @@ void drawHorizonTask(void * parameter) {
     // Refresh the display at regular intervals
     if (millis() > redrawTime) {
       redrawTime = millis() + REDRAW_DELAY;
+      Serial.printf("PI: %.2f, RO: %.2f\n", pitch, roll);
       updateHorizon(-pitch, -roll);
     }
   }
@@ -1001,7 +915,7 @@ void setup()
 {
   Wire.begin(22, 21);
   //  TWBR = 12;  // 400 kbit/sec I2C speed
-  Serial.begin(9600);
+  Serial.begin(115200);
   
   // Set up the interrupt pin, its set as active high, push-pull
   pinMode(intPin, INPUT);
@@ -1010,7 +924,9 @@ void setup()
   digitalWrite(myLed, HIGH);
   
   tft.init();
-  tft.setRotation(0);
+  tft.invertDisplay(false);
+  tft.setRotation(2);
+
 
   if (TFT_BL > 0) { // TFT_BL has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
       pinMode(TFT_BL, OUTPUT); // Set backlight pin to output mode
@@ -1071,7 +987,9 @@ void setup()
   
     initMPU9250(); 
     Serial.println("MPU9250 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
-  
+    getAres();
+    getGres();
+
     // Read the WHO_AM_I register of the magnetometer, this is a good test of communication
     byte d = readByte(AK8963_ADDRESS, AK8963_WHO_AM_I);  // Read WHO_AM_I register for AK8963
     Serial.print("AK8963 "); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x48, HEX);
@@ -1107,8 +1025,6 @@ void setup()
     while(1) ; // Loop forever if communication doesn't happen
   }
 
-  tft.begin();
-  tft.setRotation(0);
 
   tft.fillRect(0,  0, XC*2, YC, SKY_BLUE);
   tft.fillRect(0, YC, XC*2, YC, BROWN);
@@ -1116,7 +1032,8 @@ void setup()
   // Draw the horizon graphic
   drawHorizon(0, 0);
   drawInfo();
-  delay(2000); // Wait to permit visual check
+  redrawTime = millis() + 2000;
+  // delay(2000); // Wait to permit visual check
 
   xTaskCreatePinnedToCore(drawHorizonTask, "Horizon", 10000, NULL, 0, NULL, 0);
 }
@@ -1130,7 +1047,6 @@ void loop()
   // If intPin goes high, all data registers have new data
   if (readByte(MPU9250_ADDRESS, INT_STATUS) & 0x01) {  // On interrupt, check if data ready interrupt
     readAccelData(accelCount);  // Read the x/y/z adc values
-    getAres();
     
     // Now we'll calculate the accleration value into actual g's
     ax = (float)accelCount[0]*aRes; // - accelBias[0];  // get actual g value, this depends on scale being set
@@ -1138,24 +1054,23 @@ void loop()
     az = (float)accelCount[2]*aRes; // - accelBias[2];  
    
     readGyroData(gyroCount);  // Read the x/y/z adc values
-    getGres();
  
     // Calculate the gyro value into actual degrees per second
     gx = (float)gyroCount[0]*gRes;  // get actual gyro value, this depends on scale being set
     gy = (float)gyroCount[1]*gRes;  
     gz = (float)gyroCount[2]*gRes;   
   
-    readMagData(magCount);  // Read the x/y/z adc values
-    getMres();
-    magbias[0] = +470.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
-    magbias[1] = +120.;  // User environmental x-axis correction in milliGauss
-    magbias[2] = +125.;  // User environmental x-axis correction in milliGauss
+    // readMagData(magCount);  // Read the x/y/z adc values
+    // getMres();
+    // magbias[0] = +470.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
+    // magbias[1] = +120.;  // User environmental x-axis correction in milliGauss
+    // magbias[2] = +125.;  // User environmental x-axis correction in milliGauss
     
-    // Calculate the magnetometer values in milliGauss
-    // Include factory calibration per data sheet and user environmental corrections
-    mx = (float)magCount[0]*mRes*magCalibration[0] - magbias[0];  // get actual magnetometer value, this depends on scale being set
-    my = (float)magCount[1]*mRes*magCalibration[1] - magbias[1];  
-    mz = (float)magCount[2]*mRes*magCalibration[2] - magbias[2];   
+    // // Calculate the magnetometer values in milliGauss
+    // // Include factory calibration per data sheet and user environmental corrections
+    // mx = (float)magCount[0]*mRes*magCalibration[0] - magbias[0];  // get actual magnetometer value, this depends on scale being set
+    // my = (float)magCount[1]*mRes*magCalibration[1] - magbias[1];  
+    // mz = (float)magCount[2]*mRes*magCalibration[2] - magbias[2];   
   }
   
   Now = micros();
@@ -1172,29 +1087,11 @@ void loop()
   // in the LSM9DS0 sensor. This rotation can be modified to allow any convenient orientation convention.
   // This is ok by aircraft orientation standards!  
   // Pass gyro rate as rad/s
-//  MadgwickQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f,  my,  mx, mz);
-  MahonyQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, my, mx, mz);
+  imu_MahonyAHRSupdateIMU(deltat, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, ax, ay, az);    
       
   // Serial print and/or tft at 0.5 s rate independent of data rates
   delt_t = millis() - count;
   if (delt_t > 50) { // update LCD once per half-second independent of read rate
-
-    // if (SerialDebug) {
-    //   Serial.print("ax = "); Serial.print((int)1000*ax);  
-    //   Serial.print(" ay = "); Serial.print((int)1000*ay); 
-    //   Serial.print(" az = "); Serial.print((int)1000*az); Serial.println(" mg");
-    //   Serial.print("gx = "); Serial.print( gx, 2); 
-    //   Serial.print(" gy = "); Serial.print( gy, 2); 
-    //   Serial.print(" gz = "); Serial.print( gz, 2); Serial.println(" deg/s");
-    //   Serial.print("mx = "); Serial.print( (int)mx ); 
-    //   Serial.print(" my = "); Serial.print( (int)my ); 
-    //   Serial.print(" mz = "); Serial.print( (int)mz ); Serial.println(" mG");
-      
-    //   Serial.print("q0 = "); Serial.print(q[0]);
-    //   Serial.print(" qx = "); Serial.print(q[1]); 
-    //   Serial.print(" qy = "); Serial.print(q[2]); 
-    //   Serial.print(" qz = "); Serial.println(q[3]); 
-    // }               
     
     // Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
     // In this coordinate system, the positive z-axis is down toward Earth. 
@@ -1205,13 +1102,18 @@ void loop()
     // Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
     // applied in the correct order which for this configuration is yaw, pitch, and then roll.
     // For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
-    yaw   = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);   
-    pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
-    roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
-    pitch *= 180.0f / PI;
-    yaw   *= 180.0f / PI; 
-    yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
+    double sinr_cosp = 2 * (q0 * q1 + q2 * q3);
+    double cosr_cosp = 1 - 2 * (q1 * q1 + q2 * q2);
+    roll = std::atan2(sinr_cosp, cosr_cosp);
+    double sinp = 2 * (q0 * q2 - q3 * q1);
+    if (std::abs(sinp) >= 1)
+        pitch = std::copysign(PI / 2, sinp); // use 90 degrees if out of range
+    else
+        pitch = std::asin(sinp);
     roll  *= 180.0f / PI;
+    pitch *= 180.0f / PI;
+    // yaw   *= 180.0f / PI; 
+    // yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
     
     // if (SerialDebug) {
     //   Serial.print("Yaw, Pitch, Roll: ");
@@ -1242,5 +1144,6 @@ void loop()
     sumCount = 0;
     sum = 0;    
   }
+
 }
 
