@@ -32,34 +32,12 @@
 
 #include <MahonyAHRS.h>
 
-// TFT stuff
+#include <horizon.h>
 #include <TFT_eSPI.h> // Graphics and font library for ST7735 driver chip
-// TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom library
-TFT_eSPI tft = TFT_eSPI(240, 320); // Invoke custom library
-
-#define TFT_GREY 0x5AEB // New colour
-#define TFT_BL          4  // Display backlight control pin
-
-#define TFT_BACKLIGHT_ON HIGH
-
-#define REDRAW_DELAY 16 // minimum delay in milliseconds between display updates
-
-#define HOR 400    // Horizon vector line length
-
-#define BROWN      0x5140 //0x5960
-#define SKY_BLUE   0x02B5 //0x0318 //0x039B //0x34BF
-#define DARK_RED   0xYC00
-#define DARK_GREY  0x39C7
-
-#define XC 120 // x coord of centre of horizon
-#define YC 160 // y coord of centre of horizon
-
-#define DEG2RAD 0.0174532925
-
-int last_roll = 0; // the whole horizon graphic
-int last_pitch = 0;
 
 unsigned long redrawTime = 0;
+
+extern TFT_eSPI tft;
 
 
 // See also MPU-9250 Register Map and Descriptions, Revision 4.0, RM-MPU-9250A-00, Rev. 1.4, 9/9/2013 for registers not listed in 
@@ -280,8 +258,6 @@ float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other fre
 #define Kp 2.0f * 5.0f // these are the free parameters in the Mahony filter and fusion scheme, Kp for proportional feedback, Ki for integral
 #define Ki 0.0f
 
-uint32_t delt_t = 0; // used to control tft output rate
-uint32_t count = 0, sumCount = 0; // used to control tft output rate
 float pitch, yaw, roll;
 float deltat = 0.0f, sum = 0.0f;        // integration interval for both filter schemes
 uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
@@ -740,169 +716,13 @@ void MPU9250SelfTest(float * destination) // Should return percent deviation fro
 }
 
 
-// #########################################################################
-// Draw the horizon with a new roll (angle in range -180 to +180)
-// #########################################################################
-
-void drawHorizon(int roll, int pitch)
-{
-  // Calculate coordinates for line start
-  float sx = cos(roll * DEG2RAD);
-  float sy = sin(roll * DEG2RAD);
-
-  int16_t x0 = sx * HOR;
-  int16_t y0 = sy * HOR;
-  int16_t xd = 0;
-  int16_t yd = 1;
-  int16_t xdn  = 0;
-  int16_t ydn = 0;
-
-  if (roll > 45 && roll <  135) {
-    xd = -1;
-    yd =  0;
-  }
-  if (roll >=  135)             {
-    xd =  0;
-    yd = -1;
-  }
-  if (roll < -45 && roll > -135) {
-    xd =  1;
-    yd =  0;
-  }
-  if (roll <= -135)             {
-    xd =  0;
-    yd = -1;
-  }
-
-  if ((roll != last_roll) && ((abs(roll) > 35)  || (pitch != last_pitch)))
-  {
-    xdn = 4 * xd;
-    ydn = 4 * yd;
-    tft.drawLine(XC - x0 - xdn, YC - y0 - ydn - pitch, XC + x0 - xdn, YC + y0 - ydn - pitch, SKY_BLUE);
-    tft.drawLine(XC - x0 + xdn, YC - y0 + ydn - pitch, XC + x0 + xdn, YC + y0 + ydn - pitch, BROWN);
-    xdn = 3 * xd;
-    ydn = 3 * yd;
-    tft.drawLine(XC - x0 - xdn, YC - y0 - ydn - pitch, XC + x0 - xdn, YC + y0 - ydn - pitch, SKY_BLUE);
-    tft.drawLine(XC - x0 + xdn, YC - y0 + ydn - pitch, XC + x0 + xdn, YC + y0 + ydn - pitch, BROWN);
-  }
-  xdn = 2 * xd;
-  ydn = 2 * yd;
-  tft.drawLine(XC - x0 - xdn, YC - y0 - ydn - pitch, XC + x0 - xdn, YC + y0 - ydn - pitch, SKY_BLUE);
-  tft.drawLine(XC - x0 + xdn, YC - y0 + ydn - pitch, XC + x0 + xdn, YC + y0 + ydn - pitch, BROWN);
-
-  tft.drawLine(XC - x0 - xd, YC - y0 - yd - pitch, XC + x0 - xd, YC + y0 - yd - pitch, SKY_BLUE);
-  tft.drawLine(XC - x0 + xd, YC - y0 + yd - pitch, XC + x0 + xd, YC + y0 + yd - pitch, BROWN);
-
-  tft.drawLine(XC - x0, YC - y0 - pitch,   XC + x0, YC + y0 - pitch,   TFT_WHITE);
-
-  last_roll = roll;
-  last_pitch = pitch;
-
-}
-
-// #########################################################################
-// Draw the information
-// #########################################################################
-
-void drawInfo(void)
-{
-  // Update things near middle of screen first (most likely to get obscured)
-
-  // Level wings graphic
-  tft.fillRect(XC - 1, YC - 1, 3, 3, TFT_RED);
-  tft.drawFastHLine(XC - 30,   YC, 24, TFT_RED);
-  tft.drawFastHLine(XC + 30 - 24, YC, 24, TFT_RED);
-  tft.drawFastVLine(XC - 30 + 24, YC, 3, TFT_RED);
-  tft.drawFastVLine(XC + 30 - 24, YC, 3, TFT_RED);
-
-  // Pitch scale
-  tft.drawFastHLine(XC - 12,   YC - 40, 24, TFT_WHITE);
-  tft.drawFastHLine(XC -  6,   YC - 30, 12, TFT_WHITE);
-  tft.drawFastHLine(XC - 12,   YC - 20, 24, TFT_WHITE);
-  tft.drawFastHLine(XC -  6,   YC - 10, 12, TFT_WHITE);
-
-  tft.drawFastHLine(XC -  6,   YC + 10, 12, TFT_WHITE);
-  tft.drawFastHLine(XC - 12,   YC + 20, 24, TFT_WHITE);
-  tft.drawFastHLine(XC -  6,   YC + 30, 12, TFT_WHITE);
-  tft.drawFastHLine(XC - 12,   YC + 40, 24, TFT_WHITE);
-
-  // Pitch scale values
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(XC - 12 - 13, YC - 20 - 3);
-  tft.print("20");
-  tft.setCursor(XC + 12 + 1, YC - 20 - 3);
-  tft.print("20");
-  tft.setCursor(XC - 12 - 13, YC + 20 - 3);
-  tft.print("20");
-  tft.setCursor(XC + 12 + 1, YC + 20 - 3);
-  tft.print("20");
-
-  tft.setCursor(XC - 12 - 13, YC - 40 - 3);
-  tft.print("40");
-  tft.setCursor(XC + 12 + 1, YC - 40 - 3);
-  tft.print("40");
-  tft.setCursor(XC - 12 - 13, YC + 40 - 3);
-  tft.print("40");
-  tft.setCursor(XC + 12 + 1, YC + 40 - 3);
-  tft.print("40");
-
-  // Display justified roll value near bottom of screen
-  tft.setTextColor(TFT_YELLOW, BROWN); // Text with background
-  tft.setTextDatum(MC_DATUM);            // Centre middle justified
-  tft.setTextPadding(24);                // Padding width to wipe previous number
-  tft.drawString("PI:", XC - 40, YC * 2 - 20, 1);
-  tft.drawNumber(last_pitch, XC - 20, YC * 2 - 20, 1);
-  tft.drawString("RO:", XC +20, YC * 2 - 20, 1);
-  tft.drawNumber(last_roll, XC + 40, YC * 2 - 20, 1);
-
-  // Draw fixed text
-  tft.setTextColor(TFT_YELLOW);
-  tft.setTextDatum(TC_DATUM);            // Centre middle justified
-  tft.drawString("SPD  LNAV WNAV PTH", XC, 1, 1);
-  tft.drawString("Bodmer's AHI", XC, YC * 2 - 10, 1);
-}
-
-// #########################################################################
-// Update the horizon with a new roll (angle in range -180 to +180)
-// #########################################################################
-void updateHorizon(int roll, int pitch)
-{
-  int delta_pitch = 0;
-  int pitch_error = 0;
-  int delta_roll  = 0;
-  while ((last_pitch != pitch) || (last_roll != roll))
-  {
-    delta_pitch = 0;
-    delta_roll  = 0;
-
-    if (last_pitch < pitch) {
-      delta_pitch = 1;
-      pitch_error = pitch - last_pitch;
-    }
-
-    if (last_pitch > pitch) {
-      delta_pitch = -1;
-      pitch_error = last_pitch - pitch;
-    }
-
-    if (last_roll < roll) delta_roll  = 1;
-    if (last_roll > roll) delta_roll  = -1;
-
-    if (delta_roll == 0) {
-      if (pitch_error > 1) delta_pitch *= 2;
-    }
-
-    drawHorizon(last_roll + delta_roll, last_pitch + delta_pitch);
-    drawInfo();
-  }
-}
 
 void drawHorizonTask(void * parameter) {
   while(1){
     // Refresh the display at regular intervals
     if (millis() > redrawTime) {
       redrawTime = millis() + REDRAW_DELAY;
-      Serial.printf("PI: %.2f, RO: %.2f\n", pitch, roll);
+      // Serial.printf("PI: %.2f, RO: %.2f\n", pitch, roll);
       updateHorizon(-pitch, -roll);
     }
   }
@@ -923,15 +743,7 @@ void setup()
   pinMode(myLed, OUTPUT);
   digitalWrite(myLed, HIGH);
   
-  tft.init();
-  tft.invertDisplay(false);
-  tft.setRotation(2);
-
-
-  if (TFT_BL > 0) { // TFT_BL has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
-      pinMode(TFT_BL, OUTPUT); // Set backlight pin to output mode
-      digitalWrite(TFT_BL, TFT_BACKLIGHT_ON); // Turn backlight on. TFT_BACKLIGHT_ON has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
-  }
+  initHorizon();
     
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(0,0); 
@@ -939,25 +751,24 @@ void setup()
   tft.println("MPU9250");
   tft.println("9-DOF 16-bit motion sensor");
   tft.println("60 ug LSB");
-  delay(2000);
+  // delay(2000);
 
   // Set up for data tft
-  tft.fillScreen(TFT_BLACK);   // clears the screen and buffer
-  tft.setCursor(0,0); 
+  // tft.fillScreen(TFT_BLACK);   // clears the screen and buffer
+  // tft.setCursor(0,0); 
 
   // Read the WHO_AM_I register, this is a good test of communication
   byte c = readByte(MPU9250_ADDRESS, WHO_AM_I_MPU9250);  // Read WHO_AM_I register for MPU-9250
   Serial.print("MPU9250 "); Serial.print("I AM "); Serial.print(c, HEX); Serial.print(" I should be "); Serial.println(0x71, HEX);
-  tft.print("MPU9250: I AM ");
-  tft.println(c, HEX);  
-  tft.print("I Should Be ");
-  tft.println(0x71, HEX); 
-  delay(2000); 
+  tft.print("MPU9250: I AM "); tft.println(c, HEX);  
+  tft.print("I Should Be "); tft.println(0x71, HEX); 
 
   if (c == 0x71) // WHO_AM_I should always be 0x68
   {  
     Serial.println("MPU9250 is online...");
-    
+    tft.println("MPU9250 is online...");
+    tft.println();
+
     MPU9250SelfTest(SelfTest); // Start by performing self test and reporting values
     Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0],1); Serial.println("% of factory value");
     Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1],1); Serial.println("% of factory value");
@@ -967,23 +778,21 @@ void setup()
     Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
  
     calibrateMPU9250(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
-    tft.fillScreen(TFT_BLACK);
-    tft.setCursor(0, 0);
 
     tft.println("MPU9250 bias");
-    tft.setCursor(0, 8); tft.print(" x   y   z  ");
+    tft.setCursor(0, 64); tft.print(" x   y   z  ");
 
-    tft.setCursor(0,  16); tft.print((int)(1000*accelBias[0])); 
-    tft.setCursor(24, 16); tft.print((int)(1000*accelBias[1])); 
-    tft.setCursor(48, 16); tft.print((int)(1000*accelBias[2])); 
-    tft.setCursor(72, 16); tft.print("mg");
+    tft.setCursor(0,  72); tft.print((int)(1000*accelBias[0])); 
+    tft.setCursor(24, 72); tft.print((int)(1000*accelBias[1])); 
+    tft.setCursor(48, 72); tft.print((int)(1000*accelBias[2])); 
+    tft.setCursor(72, 72); tft.print("mg");
     
-    tft.setCursor(0,  24); tft.print(gyroBias[0], 1); 
-    tft.setCursor(24, 24); tft.print(gyroBias[1], 1); 
-    tft.setCursor(48, 24); tft.print(gyroBias[2], 1); 
-    tft.setCursor(66, 24); tft.print("o/s");   
+    tft.setCursor(0,  80); tft.print(gyroBias[0], 1); 
+    tft.setCursor(24, 80); tft.print(gyroBias[1], 1); 
+    tft.setCursor(48, 80); tft.print(gyroBias[2], 1); 
+    tft.setCursor(66, 80); tft.print("o/s");   
   
-    delay(1000); 
+    delay(2000); 
   
     initMPU9250(); 
     Serial.println("MPU9250 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
@@ -994,12 +803,9 @@ void setup()
     byte d = readByte(AK8963_ADDRESS, AK8963_WHO_AM_I);  // Read WHO_AM_I register for AK8963
     Serial.print("AK8963 "); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x48, HEX);
     tft.fillScreen(TFT_BLACK);
-    tft.setCursor(20,0); tft.println("AK8963");
-    tft.print("I AM ");
-    tft.println(d, HEX);  
-    tft.print("I Should Be ");
-    tft.println(0x48, HEX);  
-    delay(2000); 
+    tft.setCursor(0, 0); tft.println("AK8963");
+    tft.print("I AM "); tft.println(d, HEX);  
+    tft.print("I Should Be "); tft.println(0x48, HEX);  
   
     // Get magnetometer calibration from AK8963 ROM
     initAK8963(magCalibration); Serial.println("AK8963 initialized for active data mode...."); // Initialize device for active mode read of magnetometer
@@ -1025,15 +831,9 @@ void setup()
     while(1) ; // Loop forever if communication doesn't happen
   }
 
-
-  tft.fillRect(0,  0, XC*2, YC, SKY_BLUE);
-  tft.fillRect(0, YC, XC*2, YC, BROWN);
-
-  // Draw the horizon graphic
-  drawHorizon(0, 0);
-  drawInfo();
+  // Draw the horizon graphic;
+  initHorizon();
   redrawTime = millis() + 2000;
-  // delay(2000); // Wait to permit visual check
 
   xTaskCreatePinnedToCore(drawHorizonTask, "Horizon", 10000, NULL, 0, NULL, 0);
 }
@@ -1060,25 +860,11 @@ void loop()
     gy = (float)gyroCount[1]*gRes;  
     gz = (float)gyroCount[2]*gRes;   
   
-    // readMagData(magCount);  // Read the x/y/z adc values
-    // getMres();
-    // magbias[0] = +470.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
-    // magbias[1] = +120.;  // User environmental x-axis correction in milliGauss
-    // magbias[2] = +125.;  // User environmental x-axis correction in milliGauss
-    
-    // // Calculate the magnetometer values in milliGauss
-    // // Include factory calibration per data sheet and user environmental corrections
-    // mx = (float)magCount[0]*mRes*magCalibration[0] - magbias[0];  // get actual magnetometer value, this depends on scale being set
-    // my = (float)magCount[1]*mRes*magCalibration[1] - magbias[1];  
-    // mz = (float)magCount[2]*mRes*magCalibration[2] - magbias[2];   
   }
   
   Now = micros();
   deltat = ((Now - lastUpdate)/1000000.0f); // set integration time by time elapsed since last filter update
   lastUpdate = Now;
-
-  sum += deltat; // sum for averaging filter update rate
-  sumCount++;
   
   // Sensors x (y)-axis of the accelerometer is aligned with the y (x)-axis of the magnetometer;
   // the magnetometer z-axis (+ down) is opposite to z-axis (+ up) of accelerometer and gyro!
@@ -1088,62 +874,28 @@ void loop()
   // This is ok by aircraft orientation standards!  
   // Pass gyro rate as rad/s
   imu_MahonyAHRSupdateIMU(deltat, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, ax, ay, az);    
-      
-  // Serial print and/or tft at 0.5 s rate independent of data rates
-  delt_t = millis() - count;
-  if (delt_t > 50) { // update LCD once per half-second independent of read rate
+          
+  // Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
+  // In this coordinate system, the positive z-axis is down toward Earth. 
+  // Yaw is the angle between Sensor x-axis and Earth magnetic North (or true North if corrected for local declination, looking down on the sensor positive yaw is counterclockwise.
+  // Pitch is angle between sensor x-axis and Earth ground plane, toward the Earth is positive, up toward the sky is negative.
+  // Roll is angle between sensor y-axis and Earth ground plane, y-axis up is positive roll.
+  // These arise from the definition of the homogeneous rotation matrix constructed from quaternions.
+  // Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
+  // applied in the correct order which for this configuration is yaw, pitch, and then roll.
+  // For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
+  double sinr_cosp = 2 * (q0 * q1 + q2 * q3);
+  double cosr_cosp = 1 - 2 * (q1 * q1 + q2 * q2);
+  roll = std::atan2(sinr_cosp, cosr_cosp);
+  double sinp = 2 * (q0 * q2 - q3 * q1);
+  if (std::abs(sinp) >= 1)
+      pitch = std::copysign(PI / 2, sinp); // use 90 degrees if out of range
+  else
+      pitch = std::asin(sinp);
+  roll  *= 180.0f / PI;
+  pitch *= 180.0f / PI;
+  // yaw   *= 180.0f / PI; 
+  // yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
     
-    // Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
-    // In this coordinate system, the positive z-axis is down toward Earth. 
-    // Yaw is the angle between Sensor x-axis and Earth magnetic North (or true North if corrected for local declination, looking down on the sensor positive yaw is counterclockwise.
-    // Pitch is angle between sensor x-axis and Earth ground plane, toward the Earth is positive, up toward the sky is negative.
-    // Roll is angle between sensor y-axis and Earth ground plane, y-axis up is positive roll.
-    // These arise from the definition of the homogeneous rotation matrix constructed from quaternions.
-    // Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
-    // applied in the correct order which for this configuration is yaw, pitch, and then roll.
-    // For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
-    double sinr_cosp = 2 * (q0 * q1 + q2 * q3);
-    double cosr_cosp = 1 - 2 * (q1 * q1 + q2 * q2);
-    roll = std::atan2(sinr_cosp, cosr_cosp);
-    double sinp = 2 * (q0 * q2 - q3 * q1);
-    if (std::abs(sinp) >= 1)
-        pitch = std::copysign(PI / 2, sinp); // use 90 degrees if out of range
-    else
-        pitch = std::asin(sinp);
-    roll  *= 180.0f / PI;
-    pitch *= 180.0f / PI;
-    // yaw   *= 180.0f / PI; 
-    // yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
-    
-    // if (SerialDebug) {
-    //   Serial.print("Yaw, Pitch, Roll: ");
-    //   Serial.print(yaw, 2);
-    //   Serial.print(", ");
-    //   Serial.print(pitch, 2);
-    //   Serial.print(", ");
-    //   Serial.println(roll, 2);
-      
-    //   Serial.print("rate = "); Serial.print((float)sumCount/sum, 2); Serial.println(" Hz");
-    // }
-  
-
-    // With these settings the filter is updating at a ~145 Hz rate using the Madgwick scheme and 
-    // >200 Hz using the Mahony scheme even though the tft refreshes at only 2 Hz.
-    // The filter update rate is determined mostly by the mathematical steps in the respective algorithms, 
-    // the processor speed (8 MHz for the 3.3V Pro Mini), and the magnetometer ODR:
-    // an ODR of 10 Hz for the magnetometer produce the above rates, maximum magnetometer ODR of 100 Hz produces
-    // filter update rates of 36 - 145 and ~38 Hz for the Madgwick and Mahony schemes, respectively. 
-    // This is presumably because the magnetometer read takes longer than the gyro or accelerometer reads.
-    // This filter update rate should be fast enough to maintain accurate platform orientation for 
-    // stabilization control of a fast-moving robot or quadcopter. Compare to the update rate of 200 Hz
-    // produced by the on-board Digital Motion Processor of Invensense's MPU6050 6 DoF and MPU9150 9DoF sensors.
-    // The 3.3 V 8 MHz Pro Mini is doing pretty well!
-    // tft.setCursor(0, 40); tft.print("rt: "); tft.print((float) sumCount / sum, 2); tft.print(" Hz"); 
-
-    count = millis(); 
-    sumCount = 0;
-    sum = 0;    
-  }
-
 }
 
