@@ -1,5 +1,5 @@
 # ahizon
-An artificial horizon indicator using esp32, tft screen, mpu9250 w/ DMP for quaternions.
+An artificial horizon indicator using esp32, tft screen, mpu9250.
 
 Developed, compiled and uploaded using [PlatformIO](https://platformio.org) with [Arduino framework](https://docs.platformio.org/en/latest/platforms/espressif32.html) in [Visual Studio Code](https://code.visualstudio.com).
 
